@@ -14,12 +14,6 @@ namespace Darken
 {
     public partial class Darken : Form
     {
-        private void MakeClickThrough()
-        {
-            int extendedStyle = GetWindowLong(this.Handle, GWL_EXSTYLE);
-            SetWindowLong(this.Handle, GWL_EXSTYLE, extendedStyle | WS_EX_TRANSPARENT);
-        }
-
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TRANSPARENT = 0x20;
 
@@ -29,45 +23,78 @@ namespace Darken
         [DllImport("user32.dll")]
         private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
-        private readonly NotifyIcon TrayIcon;
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+        private void MakeClickThrough()
+        {
+            int extendedStyle = GetWindowLong(this.Handle, GWL_EXSTYLE);
+            SetWindowLong(this.Handle, GWL_EXSTYLE, extendedStyle | WS_EX_TRANSPARENT);
+        }
+        private void BringToFrontTimer_Tick(object sender, EventArgs e)
+        {
+            SetForegroundWindow(this.Handle);
+        }
+        private void NotifyIcon_MouseUp(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                if (bringToFrontTimer.Enabled)
+                {
+                    bringToFrontTimer.Stop();
+                }
+                else
+                {
+                    bringToFrontTimer.Start();
+                }
+            }
+        }
 
-        void Exit(object sender, EventArgs e)
-        {
-            TrayIcon.Visible = false;
-            CloseTimer.Tick += new EventHandler(FadeOut);
-            CloseTimer.Start();
-        }
-        void LowerOpacity(object sender, EventArgs e)
-        {
-            Opacity -= .1;
-            global::Darken.Properties.Settings.Default.Opacity = this.Opacity;
-            global::Darken.Properties.Settings.Default.Save();
-        }
-        void RaiseOpacity(object sender, EventArgs e)
-        {
-            Opacity += .1;
-            global::Darken.Properties.Settings.Default.Opacity = this.Opacity;
-            global::Darken.Properties.Settings.Default.Save();
-        }
+        private readonly Timer bringToFrontTimer;
+        private readonly NotifyIcon notifyIcon;
 
         public Darken()
         {
             InitializeComponent();
-            TrayIcon = new NotifyIcon()
-            {
-                Icon = Resources.AppIcon,
-                ContextMenu = new ContextMenu(new MenuItem[] {
-                new MenuItem("Increase Opacity", RaiseOpacity),
-                new MenuItem("Decrease Opacity", LowerOpacity),
-                new MenuItem("Close Darken", Exit)
-            }),
-                Visible = true
-            };
             this.Location = new Point(0, 0);
             this.Width = Screen.PrimaryScreen.WorkingArea.Size.Width;
             this.Height = Screen.PrimaryScreen.WorkingArea.Size.Height * 2;
             Opacity = global::Darken.Properties.Settings.Default.Opacity;
             MakeClickThrough();
+            notifyIcon = new NotifyIcon()
+            {
+                Icon = Resources.AppIcon,
+                ContextMenu = new ContextMenu(new MenuItem[] {
+                new MenuItem("Raise Opacity", RaiseOpacity),
+                new MenuItem("Lower Opacity", LowerOpacity),
+                new MenuItem("Exit", ExitDarken)
+            }),
+                Visible = true,
+                Text = "Darken"
+            };
+            notifyIcon.MouseUp += NotifyIcon_MouseUp;
+            bringToFrontTimer = new Timer();
+            bringToFrontTimer.Interval = 1000;
+            bringToFrontTimer.Tick += BringToFrontTimer_Tick;
+            bringToFrontTimer.Start();
+        }
+
+        private void ExitDarken(object sender, EventArgs e)
+        {
+            notifyIcon.Visible = false;
+            CloseTimer.Tick += new EventHandler(FadeOut);
+            CloseTimer.Start();
+        }
+        private void LowerOpacity(object sender, EventArgs e)
+        {
+            Opacity -= .1;
+            global::Darken.Properties.Settings.Default.Opacity = this.Opacity;
+            global::Darken.Properties.Settings.Default.Save();
+        }
+        private void RaiseOpacity(object sender, EventArgs e)
+        {
+            Opacity += .1;
+            global::Darken.Properties.Settings.Default.Opacity = this.Opacity;
+            global::Darken.Properties.Settings.Default.Save();
         }
 
         readonly Timer CloseTimer = new Timer();
@@ -89,6 +116,7 @@ namespace Darken
             if (Opacity <= 0)
             {
                 T1.Stop();
+                notifyIcon.Dispose();
                 Application.Exit();
             }
             else
