@@ -1,19 +1,14 @@
 ﻿using Darken.Properties;
 using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Drawing;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Darken
 {
     public partial class Darken : Form
     {
+        #region Variables
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TRANSPARENT = 0x20;
 
@@ -25,103 +20,128 @@ namespace Darken
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        private Timer bringToFrontTimer;
+        private NotifyIcon notifyIcon;
+        private Timer closeTimer;
+        private Timer fadeTimer;
+        private bool isContextMenuOpen;
+        #endregion
+
+        public Darken()
+        {
+            InitializeComponent();
+            InitializeForm();
+            InitializeNotifyIcon();
+            InitializeTimers();
+        }
+
+        #region Initialization
+        private void InitializeForm()
+        {
+            this.Location = new Point(0, 0);
+            this.Width = Screen.PrimaryScreen.WorkingArea.Width;
+            this.Height = Screen.PrimaryScreen.WorkingArea.Height * 2;
+            this.Opacity = Settings.Default.Opacity;
+            MakeClickThrough();
+        }
+
+        private void InitializeNotifyIcon()
+        {
+            notifyIcon = new NotifyIcon
+            {
+                Icon = Resources.AppIcon,
+                ContextMenu = new ContextMenu(new MenuItem[]
+                {
+                    new MenuItem("Raise Opacity", RaiseOpacity),
+                    new MenuItem("Lower Opacity", LowerOpacity),
+                    new MenuItem("Exit", ExitDarken)
+                }),
+                Visible = true,
+                Text = "Darken"
+            };
+            notifyIcon.MouseUp += NotifyIcon_MouseUp;
+            notifyIcon.ContextMenu.Popup += ContextMenu_Popup;
+            notifyIcon.ContextMenu.Collapse += ContextMenu_Collapse;
+        }
+
+        private void InitializeTimers()
+        {
+            bringToFrontTimer = new Timer { Interval = 1000 };
+            bringToFrontTimer.Tick += BringToFrontTimer_Tick;
+            bringToFrontTimer.Start();
+
+            closeTimer = new Timer { Interval = 50 };
+            fadeTimer = new Timer { Interval = 50 };
+        }
+
         private void MakeClickThrough()
         {
-            int extendedStyle = GetWindowLong(this.Handle, GWL_EXSTYLE);
-            SetWindowLong(this.Handle, GWL_EXSTYLE, extendedStyle | WS_EX_TRANSPARENT);
+            int extendedStyle = GetWindowLong(Handle, GWL_EXSTYLE);
+            SetWindowLong(Handle, GWL_EXSTYLE, extendedStyle | WS_EX_TRANSPARENT);
         }
+        #endregion
+
+        #region Application functions
         private void BringToFrontTimer_Tick(object sender, EventArgs e)
-        {
-            SetForegroundWindow(this.Handle);
-        }
+        { if (!isContextMenuOpen) SetForegroundWindow(Handle); }
+
         private void NotifyIcon_MouseUp(object sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Right)
             {
                 if (bringToFrontTimer.Enabled)
-                {
                     bringToFrontTimer.Stop();
-                }
                 else
-                {
                     bringToFrontTimer.Start();
-                }
             }
         }
 
-        private readonly Timer bringToFrontTimer;
-        private readonly NotifyIcon notifyIcon;
+        private void ContextMenu_Popup(object sender, EventArgs e)
+        { isContextMenuOpen = true; }
 
-        public Darken()
-        {
-            InitializeComponent();
-            this.Location = new Point(0, 0);
-            this.Width = Screen.PrimaryScreen.WorkingArea.Size.Width;
-            this.Height = Screen.PrimaryScreen.WorkingArea.Size.Height * 2;
-            Opacity = global::Darken.Properties.Settings.Default.Opacity;
-            MakeClickThrough();
-            notifyIcon = new NotifyIcon()
-            {
-                Icon = Resources.AppIcon,
-                ContextMenu = new ContextMenu(new MenuItem[] {
-                new MenuItem("Raise Opacity", RaiseOpacity),
-                new MenuItem("Lower Opacity", LowerOpacity),
-                new MenuItem("Exit", ExitDarken)
-            }),
-                Visible = true,
-                Text = "Darken"
-            };
-            notifyIcon.MouseUp += NotifyIcon_MouseUp;
-            bringToFrontTimer = new Timer();
-            bringToFrontTimer.Interval = 1000;
-            bringToFrontTimer.Tick += BringToFrontTimer_Tick;
-            bringToFrontTimer.Start();
-        }
+        private void ContextMenu_Collapse(object sender, EventArgs e)
+        { isContextMenuOpen = false; }
 
         private void ExitDarken(object sender, EventArgs e)
         {
             notifyIcon.Visible = false;
-            CloseTimer.Tick += new EventHandler(FadeOut);
-            CloseTimer.Start();
-        }
-        private void LowerOpacity(object sender, EventArgs e)
-        {
-            Opacity -= .1;
-            global::Darken.Properties.Settings.Default.Opacity = this.Opacity;
-            global::Darken.Properties.Settings.Default.Save();
-        }
-        private void RaiseOpacity(object sender, EventArgs e)
-        {
-            Opacity += .1;
-            global::Darken.Properties.Settings.Default.Opacity = this.Opacity;
-            global::Darken.Properties.Settings.Default.Save();
+            closeTimer.Tick += FadeOut;
+            closeTimer.Start();
         }
 
-        readonly Timer CloseTimer = new Timer();
-        readonly Timer T1 = new Timer();
-        void FadeClosing(object sender, FormClosingEventArgs e)
+        private void LowerOpacity(object sender, EventArgs e)
+        { ChangeOpacity(-0.1); }
+
+        private void RaiseOpacity(object sender, EventArgs e)
+        { ChangeOpacity(0.1); }
+
+        private void ChangeOpacity(double delta)
+        {
+            Opacity = Math.Max(0, Math.Min(1, Opacity + delta));
+            Settings.Default.Opacity = this.Opacity;
+            Settings.Default.Save();
+        }
+
+        private void FadeClosing(object sender, FormClosingEventArgs e)
         {
             e.Cancel = true;
-            T1.Tick += new EventHandler(FadeOut);
-            T1.Start();
-
-
-            if (Opacity == 0)
-                e.Cancel = false;
-
+            fadeTimer.Tick += FadeOut;
+            fadeTimer.Start();
         }
-        void FadeOut(object sender, EventArgs e)
+
+        private void FadeOut(object sender, EventArgs e)
         {
-            CloseTimer.Interval = 50;
-            if (Opacity <= 0)
+            if (Opacity > 0)
+                Opacity -= 0.03;
+            else
             {
-                T1.Stop();
+                fadeTimer.Stop();
+                closeTimer.Stop();
                 notifyIcon.Dispose();
                 Application.Exit();
             }
-            else
-                Opacity -= 0.3;
         }
-
+        #endregion
     }
 }
